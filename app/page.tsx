@@ -20,7 +20,8 @@ import {
   Lock,
   Unlock,
   Key,
-  Database
+  Database,
+  Send
 } from 'lucide-react';
 
 interface CustomClaim {
@@ -35,6 +36,7 @@ interface MockUser {
   email: string;
   role: string;
   customClaims: CustomClaim[];
+  passwordHash?: string;
 }
 
 // ==========================================
@@ -112,6 +114,7 @@ export default function Page() {
       username: "alice.security",
       email: "alice@contoso.com",
       role: "Admin",
+      passwordHash: "AQAAAAIAAYagAAAAEIjhYv7nKy2bX60zR3m4P90aL78rB94cKv91o8FhA34dD",
       customClaims: [
         { key: "Department", value: "Cybersecurity" },
         { key: "Age", value: "28" },
@@ -124,6 +127,7 @@ export default function Page() {
       username: "bob.manager",
       email: "bob@contoso.com",
       role: "Manager",
+      passwordHash: "AQAAAAIAAYagAAAAEG3hZ2m20t72pX89vQ15rK92cLa78nD83fL29zA14eF",
       customClaims: [
         { key: "Department", value: "Resources" },
         { key: "Age", value: "35" },
@@ -136,6 +140,7 @@ export default function Page() {
       username: "charlie.user",
       email: "charlie@contoso.com",
       role: "User",
+      passwordHash: "AQAAAAIAAYagAAAAEL4nP91mA72fX84tN83bV92oK84eE93cM72zA18gH",
       customClaims: [
         { key: "Department", value: "Engineering" },
         { key: "Age", value: "19" },
@@ -146,6 +151,22 @@ export default function Page() {
 
   // Selected User for Token Generation
   const [selectedUserId, setSelectedUserId] = useState<string>("u-1");
+  
+  // Registration Form State
+  const [regName, setRegName] = useState<string>("Diana Prince");
+  const [regUsername, setRegUsername] = useState<string>("diana.security");
+  const [regEmail, setRegEmail] = useState<string>("diana@contoso.com");
+  const [regPassword, setRegPassword] = useState<string>("SecurePass123!");
+  const [regConfirmPassword, setRegConfirmPassword] = useState<string>("SecurePass123!");
+  const [regRole, setRegRole] = useState<string>("User");
+  const [regAge, setRegAge] = useState<number>(24);
+  const [regDept, setRegDept] = useState<string>("Engineering");
+
+  // Registration feedback state
+  const [regFormErrors, setRegFormErrors] = useState<{ [key: string]: string[] }>({});
+  const [regConsoleLogs, setRegConsoleLogs] = useState<any[]>([]);
+  const [regResponseData, setRegResponseData] = useState<any>(null);
+  const [lastRegisteredUser, setLastRegisteredUser] = useState<any>(null);
   const [customUserForm, setCustomUserForm] = useState<{
     name: string;
     username: string;
@@ -173,9 +194,10 @@ export default function Page() {
   
   // Active primary layout tabs (C# Code Generator vs Token Simulator / Middleware Trace)
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<'editor' | 'sandbox' | 'docs'>('editor');
+  const [sidebarTab, setSidebarTab] = useState<'claims' | 'register'>('claims');
   
   // Sub-tabs for the C# code generator
-  const [activeCodeFile, setActiveCodeFile] = useState<'appsettings' | 'program' | 'service' | 'auth_controller' | 'policy_controller'>('program');
+  const [activeCodeFile, setActiveCodeFile] = useState<'appsettings' | 'program' | 'service' | 'auth_controller' | 'policy_controller' | 'register_controller' | 'register_dto' | 'password_hasher' | 'db_context'>('program');
 
   // Helper: Format Code Copy Feedback
   const handleCopyCode = (code: string, fileKey: string) => {
@@ -227,6 +249,216 @@ export default function Page() {
       role: "User",
       age: "21",
       department: "Marketing"
+    });
+  };
+
+  // Trigger user registration simulation
+  const handleRegisterUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const errors: { [key: string]: string[] } = {};
+    
+    // 1. Basic annotation validators
+    if (!regName || regName.trim().length < 2) {
+      errors["Name"] = ["The Full Name field must be a string with a minimum length of 2."];
+    }
+    if (!regUsername || regUsername.trim().length < 3) {
+      errors["Username"] = ["The Username field must be a string with a minimum length of 3."];
+    } else if (!/^[a-zA-Z0-9._-]+$_.*/.test(regUsername + "_")) { // safe check
+      errors["Username"] = ["The Username can only contain letters, numbers, periods, underscores, or hyphens."];
+    }
+    
+    if (!regEmail) {
+      errors["Email"] = ["The Email field is required."];
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(regEmail)) {
+      errors["Email"] = ["The Email field is not a valid e-mail address."];
+    }
+    
+    if (!regPassword) {
+      errors["Password"] = ["The Password field is required."];
+    } else if (regPassword.length < 6) {
+      errors["Password"] = ["The password must be at least 6 characters long."];
+    } else {
+      // Check password complexity requirements: 1 uppercase, 1 lowercase, 1 number, 1 special char
+      const hasUpper = /[A-Z]/.test(regPassword);
+      const hasLower = /[a-z]/.test(regPassword);
+      const hasDigit = /[0-9]/.test(regPassword);
+      const hasSpecial = /[^A-Za-z0-9]/.test(regPassword);
+      
+      const missing = [];
+      if (!hasUpper) missing.push("an uppercase letter");
+      if (!hasLower) missing.push("a lowercase letter");
+      if (!hasDigit) missing.push("a decimal digit (0-9)");
+      if (!hasSpecial) missing.push("a non-alphanumeric special character (e.g., !@#$%^&*)");
+      
+      if (missing.length > 0) {
+        errors["Password"] = [`The password must contain at least ${missing.join(', ')}.`];
+      }
+    }
+    
+    if (regPassword !== regConfirmPassword) {
+      errors["ConfirmPassword"] = ["The password and confirmation password do not match."];
+    }
+    
+    if (!regAge || regAge < 1 || regAge > 120) {
+      errors["Age"] = ["The Age must be between 1 and 120."];
+    }
+
+    const emailTaken = users.some(u => u.email.toLowerCase() === regEmail.trim().toLowerCase());
+    const usernameTaken = users.some(u => u.username.toLowerCase() === regUsername.trim().toLowerCase());
+    
+    if (emailTaken && !errors["Email"]) {
+      errors["Email"] = ["An account with this email address already exists in the database context."];
+    }
+    if (usernameTaken && !errors["Username"]) {
+      errors["Username"] = ["This username is already taken."];
+    }
+
+    setRegFormErrors(errors);
+
+    const timeStr = "16:11:42";
+    const tempLogs: any[] = [];
+
+    tempLogs.push({
+      type: 'info',
+      message: `Hosting: HttpRequest starting POST /api/auth/register HTTP/1.1`,
+      timestamp: timeStr
+    });
+    
+    tempLogs.push({
+      type: 'debug',
+      message: `Routing: Match Endpoint RegisterController.Register (POST)`,
+      timestamp: timeStr
+    });
+
+    tempLogs.push({
+      type: 'debug',
+      message: `Validation: Commencing [ApiController] model validation assertions on DTO Model: RegisterRequest.`,
+      timestamp: timeStr
+    });
+
+    if (Object.keys(errors).length > 0) {
+      // Failed validation
+      tempLogs.push({
+        type: 'warn',
+        message: `Validation: ModelState dictionary matches invalid. ${Object.keys(errors).length} verification annotations failed.`,
+        timestamp: timeStr
+      });
+      tempLogs.push({
+        type: 'error',
+        message: `Hosting: HttpRequest finished POST /api/auth/register - 400 Bad Request`,
+        timestamp: timeStr
+      });
+
+      setRegConsoleLogs(tempLogs);
+      setRegResponseData({
+        type: "BadRequest",
+        status: 400,
+        title: "One or more validation errors occurred.",
+        errors: errors
+      });
+      setLastRegisteredUser(null);
+      return;
+    }
+
+    // Success validation
+    tempLogs.push({
+      type: 'success',
+      message: `Validation: ModelState dictionary is valid. All payload attributes matching layout constraints.`,
+      timestamp: timeStr
+    });
+
+    // Simulate hashing
+    tempLogs.push({
+      type: 'debug',
+      message: `Crypto: Instantiating PBKDF2PasswordHasher...`,
+      timestamp: timeStr
+    });
+
+    // Generate high-quality mock salt and hash
+    const saltLength = 16;
+    const randomBuffer = new Uint8Array(saltLength);
+    for (let i = 0; i < saltLength; i++) {
+      randomBuffer[i] = Math.floor(Math.random() * 256);
+    }
+    const saltBase64 = btoa(String.fromCharCode(...randomBuffer));
+    // Simple mock signature to represent standard identity Version 3 hash
+    const mockHashSuffix = computeMockSignature(btoa(regUsername), btoa(regPassword), secretKey);
+    const mockFullHash = `AQAAAAIAAYagAAAAE` + saltBase64.substring(0, 16) + mockHashSuffix.substring(0, 24);
+
+    tempLogs.push({
+      type: 'success',
+      message: `Crypto: Salt generated successfully: '${saltBase64.substring(0, 12)}...' (128-bit length)`,
+      timestamp: timeStr
+    });
+    tempLogs.push({
+      type: 'success',
+      message: `Crypto: Executed RFC 2898 Key Derivations with SHA256 iterations (10000 times)`,
+      timestamp: timeStr
+    });
+    tempLogs.push({
+      type: 'debug',
+      message: `Crypto: Composite Hash calculated successfully: '${mockFullHash.substring(0, 16)}...'`,
+      timestamp: timeStr
+    });
+
+    // Simulate database insertion and EF core save
+    tempLogs.push({
+      type: 'debug',
+      message: `Database: Opening SQL Connection. Executing EF Core State insertions...`,
+      timestamp: timeStr
+    });
+    tempLogs.push({
+      type: 'success',
+      message: `Database: INSERT INTO [Users] ([Id], [Email], [Username], [PasswordHash], [Role], [Age], [Department]) VALUES (...)`,
+      timestamp: timeStr
+    });
+    tempLogs.push({
+      type: 'success',
+      message: `Database: DbContext SaveChangesAsync completed successfully. Transaction Committed.`,
+      timestamp: timeStr
+    });
+
+    const newUserId = `u-${Date.now()}`;
+    const newUserObj: MockUser = {
+      id: newUserId,
+      name: regName,
+      username: regUsername.toLowerCase().trim(),
+      email: regEmail.toLowerCase().trim(),
+      role: regRole,
+      passwordHash: mockFullHash,
+      customClaims: [
+        { key: "Department", value: regDept || "Engineering" },
+        { key: "Age", value: regAge.toString() }
+      ]
+    };
+
+    // Add to mock DB!
+    setUsers(prev => [...prev, newUserObj]);
+    setLastRegisteredUser(newUserObj);
+
+    // Return 201 Created Response
+    tempLogs.push({
+      type: 'success',
+      message: `Hosting: HttpRequest finished POST /api/auth/register - 201 Created`,
+      timestamp: timeStr
+    });
+
+    setRegConsoleLogs(tempLogs);
+    setRegResponseData({
+      type: "Created",
+      status: 201,
+      body: {
+        success: true,
+        message: "User registered successfully in SQL database context.",
+        userId: newUserId,
+        username: newUserObj.username,
+        email: newUserObj.email,
+        passwordHash: mockFullHash,
+        memberSinceUtc: new Date().toISOString()
+      },
+      salt: saltBase64,
+      hash: mockFullHash
     });
   };
 
@@ -326,6 +558,43 @@ export default function Page() {
   // Derive Simulated trace log array dynamically to maintain 100% component purity
   const simulatedResult = useMemo(() => {
     const sysTimeStr = "16:07:02";
+
+    if (selectedEndpoint === "/api/auth/register") {
+      if (regConsoleLogs.length > 0) {
+        return {
+          trace: regConsoleLogs,
+          status: regResponseData?.status || 201,
+          statusText: regResponseData?.status === 201 ? "Created" : "Bad Request",
+          explanation: regResponseData?.status === 201 
+            ? "Resource successfully created in SQL database. Complete C# DataAnnotations data validation passed and the password hash was generated securely."
+            : "The API rejected the user registration payload. Model state constraints (DataAnnotations) or unique validation checks failed."
+        };
+      } else {
+        return {
+          trace: [
+            {
+              type: 'info',
+              message: `Hosting: Watching POST /api/auth/register route.`,
+              timestamp: sysTimeStr
+            },
+            {
+              type: 'debug',
+              message: `Routing: Endpoint matched RegisterController.Register (POST) with route template 'api/auth/register'.`,
+              timestamp: sysTimeStr
+            },
+            {
+              type: 'warn',
+              message: `Simulator Note: Use the interactive 'User Registration Controller Simulator' form left to compile credentials and execute a registration.`,
+              timestamp: sysTimeStr
+            }
+          ],
+          status: 200,
+          statusText: "Ready",
+          explanation: "The registration endpoint is active and awaiting a POST request. Fill out the registration simulator inputs and click submit to dispatch a simulated HTTP POST payload."
+        };
+      }
+    }
+
     const trace: Array<{ type: 'info' | 'debug' | 'warn' | 'error' | 'success'; message: string; timestamp: string }> = [];
 
     trace.push({
@@ -721,7 +990,7 @@ export default function Page() {
       statusText,
       explanation
     };
-  }, [selectedEndpoint, currentInteractiveToken, validateIssuer, validateAudience, validateLifetime, validateIssuerSigningKey, useLegacyNamespaces, secretKey, issuer, audience, baseEpoch]);
+  }, [selectedEndpoint, currentInteractiveToken, validateIssuer, validateAudience, validateLifetime, validateIssuerSigningKey, useLegacyNamespaces, secretKey, issuer, audience, baseEpoch, regConsoleLogs, regResponseData]);
 
   const middlewareTrace = simulatedResult.trace;
   const simulatedStatus = simulatedResult.status;
@@ -999,6 +1268,289 @@ public class SecuredDataController : ControllerBase
 }`;
   }, []);
 
+  const generatedRegisterController = useMemo(() => {
+    return `using Microsoft.AspNetCore.Mvc;
+using ContosoAuth.Models;
+using ContosoAuth.DTOs;
+using ContosoAuth.Services;
+using ContosoAuth.Data;
+using Microsoft.EntityFrameworkCore;
+
+namespace ContosoAuth.Controllers;
+
+[ApiController]
+[Route("api/auth")]
+public class RegisterController : ControllerBase
+{
+    private readonly ApplicationDbContext _context;
+    private readonly IPasswordHasher _passwordHasher;
+
+    public RegisterController(ApplicationDbContext context, IPasswordHasher passwordHasher)
+    {
+        _context = context;
+        _passwordHasher = passwordHasher;
+    }
+
+    [HttpPost("register")]
+    public async Task<IActionResult> Register([FromBody] RegisterRequest request)
+    {
+        // 1. Basic validation check (DataAnnotations validation is automatic; fallback example)
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        // 2. Validate password matches confirmation
+        if (request.Password != request.ConfirmPassword)
+        {
+            ModelState.AddModelError("ConfirmPassword", "The password and confirmation password do not match.");
+            return BadRequest(new ValidationProblemDetails(ModelState) { Status = StatusCodes.Status400BadRequest });
+        }
+
+        // 3. Check for unique email
+        var emailExists = await _context.Users.AnyAsync(u => u.Email.ToLower() == request.Email.ToLower());
+        if (emailExists)
+        {
+            ModelState.AddModelError("Email", "An account with this email address already exists.");
+            return BadRequest(new ValidationProblemDetails(ModelState) { Status = StatusCodes.Status400BadRequest });
+        }
+
+        // 4. Check for unique username
+        var usernameExists = await _context.Users.AnyAsync(u => u.Username.ToLower() == request.Username.ToLower());
+        if (usernameExists)
+        {
+            ModelState.AddModelError("Username", "This username is already taken.");
+            return BadRequest(new ValidationProblemDetails(ModelState) { Status = StatusCodes.Status400BadRequest });
+        }
+
+        // 5. Instantiate model and hash password securely
+        var user = new User
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = request.Name,
+            Username = request.Username.Trim().ToLower(),
+            Email = request.Email.Trim().ToLower(),
+            Role = string.IsNullOrEmpty(request.Role) ? "User" : request.Role,
+            Age = request.Age ?? 21,
+            Department = string.IsNullOrEmpty(request.Department) ? "Engineering" : request.Department,
+            CreatedAtUtc = DateTime.UtcNow
+        };
+
+        // Securely hash user password using PBKDF2 cryptography salt derivation
+        user.PasswordHash = _passwordHasher.HashPassword(user, request.Password);
+
+        // 6. DB Context insert
+        _context.Users.Add(user);
+        await _context.SaveChangesAsync();
+
+        return CreatedAtAction(nameof(GetUserDetails), new { id = user.Id }, new {
+            Success = true,
+            Message = "User registered successfully.",
+            UserId = user.Id,
+            Username = user.Username,
+            Email = user.Email
+        });
+    }
+
+    [HttpGet("users/{id}")]
+    public async Task<IActionResult> GetUserDetails(string id)
+    {
+        var user = await _context.Users.FindAsync(id);
+        if (user == null) return NotFound();
+
+        return Ok(new {
+            user.Id,
+            user.Name,
+            user.Username,
+            user.Email,
+            user.Role,
+            user.Age,
+            user.Department,
+            user.CreatedAtUtc
+        });
+    }
+}`;
+  }, []);
+
+  const generatedRegisterDto = useMemo(() => {
+    return `using System.ComponentModel.DataAnnotations;
+
+namespace ContosoAuth.DTOs;
+
+public class RegisterRequest
+{
+    [Required(ErrorMessage = "Full Name is required.")]
+    [StringLength(50, MinimumLength = 2, ErrorMessage = "Full name must be between 2 and 50 characters.")]
+    public string Name { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Username is required.")]
+    [RegularExpression(@"^[a-zA-Z0-9._-]+$", ErrorMessage = "Username can only contain letters, numbers, periods, underscores, or hyphens.")]
+    [StringLength(20, MinimumLength = 3, ErrorMessage = "Username must be between 3 and 20 characters.")]
+    public string Username { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Email address is required.")]
+    [EmailAddress(ErrorMessage = "Invalid format for Email Address.")]
+    public string Email { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Password is required.")]
+    [DataType(DataType.Password)]
+    [StringLength(100, MinimumLength = 6, ErrorMessage = "Password must be at least 6 characters long.")]
+    [RegularExpression(@"^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^\\da-zA-Z]).+$", 
+        ErrorMessage = "Password must contain at least one uppercase letter, one lowercase letter, one decimal digit, and one special character.")]
+    public string Password { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Confirm Password is required.")]
+    [DataType(DataType.Password)]
+    [Compare("Password", ErrorMessage = "The password and confirmation password do not match.")]
+    public string ConfirmPassword { get; set; } = string.Empty;
+
+    [Range(1, 120, ErrorMessage = "Age claim must be a positive integer between 1 and 120.")]
+    public int? Age { get; set; } = 21;
+
+    public string Role { get; set; } = "User";
+
+    public string Department { get; set; } = "Engineering";
+}`;
+  }, []);
+
+  const generatedPasswordHasher = useMemo(() => {
+    return `using System.Security.Cryptography;
+using System.Text;
+using ContosoAuth.Models;
+
+namespace ContosoAuth.Services;
+
+public interface IPasswordHasher
+{
+    string HashPassword(User user, string password);
+    bool VerifyHashedPassword(User user, string hashedPassword, string providedPassword);
+}
+
+/// <summary>
+/// Secure PBKDF2 Password Hasher mimicking the ASP.NET Core Identity standards
+/// (RFC 2898 Key Derivations with SHA-256 and randomized cryptographic salt)
+/// </summary>
+public class PBKDF2PasswordHasher : IPasswordHasher
+{
+    private const int SaltSize = 16; // 128-bit Salt
+    private const int KeySize = 32;  // 256-bit Key
+    private const int Iterations = 10000; // Strong security work factor iterations
+
+    public string HashPassword(User user, string password)
+    {
+        // 1. Generate a high-entropy cryptographically secure random salt
+        byte[] salt = RandomNumberGenerator.GetBytes(SaltSize);
+
+        // 2. Derive the RFC 2898 / PBKDF2 subkey hash (using SHA-256)
+        using var pbkdf2 = new Rfc2898DeriveBytes(password, salt, Iterations, HashAlgorithmName.SHA256);
+        byte[] hash = pbkdf2.GetBytes(KeySize);
+
+        // 3. Assemble composite hash byte-buffer: [salt (16b) + hash (32b)]
+        byte[] hashBytes = new byte[SaltSize + KeySize];
+        Array.Copy(salt, 0, hashBytes, 0, SaltSize);
+        Array.Copy(hash, 0, hashBytes, SaltSize, KeySize);
+
+        // 4. Standard Encode as Base64 string for database storage
+        return Convert.ToBase64String(hashBytes);
+    }
+
+    public bool VerifyHashedPassword(User user, string hashedPassword, string providedPassword)
+    {
+        try
+        {
+            // 1. Decode stored Base64 payload back to bytes
+            byte[] hashBytes = Convert.FromBase64String(hashedPassword);
+
+            // 2. Extract salt bytes and target hash bytes
+            byte[] salt = new byte[SaltSize];
+            Array.Copy(hashBytes, 0, salt, 0, SaltSize);
+
+            byte[] expectedHash = new byte[KeySize];
+            Array.Copy(hashBytes, SaltSize, expectedHash, 0, KeySize);
+
+            // 3. Compute verification hash using the same salt & work iteration factor
+            using var pbkdf2 = new Rfc2898DeriveBytes(providedPassword, salt, Iterations, HashAlgorithmName.SHA256);
+            byte[] actualHash = pbkdf2.GetBytes(KeySize);
+
+            // 4. Secure comparison over constant-time loop to mitigate timing-channel attacks
+            return CryptographicOperations.FixedTimeEquals(actualHash, expectedHash);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+}`;
+  }, []);
+
+  const generatedDbContext = useMemo(() => {
+    return `using Microsoft.EntityFrameworkCore;
+using ContosoAuth.Models;
+
+namespace ContosoAuth.Data;
+
+public class ApplicationDbContext : DbContext
+{
+    public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : base(options)
+    {
+    }
+
+    public DbSet<User> Users => Set<User>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        // Configure the schema bindings for the secure credentials entity
+        modelBuilder.Entity<User>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            
+            entity.Property(e => e.Username)
+                  .IsRequired()
+                  .HasMaxLength(50);
+            
+            entity.HasIndex(e => e.Username)
+                  .IsUnique();
+
+            entity.Property(e => e.Email)
+                  .IsRequired()
+                  .HasMaxLength(100);
+
+            entity.HasIndex(e => e.Email)
+                  .IsUnique();
+
+            // Secure Hashed password storage with ample character bounds
+            entity.Property(e => e.PasswordHash)
+                  .IsRequired()
+                  .HasMaxLength(256);
+
+            entity.Property(e => e.Role)
+                  .HasDefaultValue("User")
+                  .HasMaxLength(20);
+
+            entity.Property(e => e.CreatedAtUtc)
+                  .HasDefaultValueSql("GETUTCDATE()");
+        });
+    }
+}
+
+namespace ContosoAuth.Models;
+
+public class User
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string PasswordHash { get; set; } = string.Empty;
+    public string Role { get; set; } = "User";
+    public int Age { get; set; } = 21;
+    public string Department { get; set; } = "Engineering";
+    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+}`;
+  }, []);
+
   return (
     <div id="aspnet-jwt-app" className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500/30 selection:text-emerald-300">
       
@@ -1243,124 +1795,364 @@ public class SecuredDataController : ControllerBase
 
           {/* DETAILED USER CLAIM BUILDER TABLE */}
           <div id="mock-database-card" className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl text-left">
-            <div className="flex justify-between items-center mb-3">
-              <h2 className="text-sm font-bold tracking-wide uppercase text-slate-400 flex items-center gap-2">
-                <Database className="w-4 h-4 text-indigo-400" />
-                {"Mock User Claims Registry"}
-              </h2>
-            </div>
-            
-            <p className="text-xs text-slate-400 mb-3 leading-relaxed">
-              {"Select or construct customized authentication identity catalogs. These claims will be integrated into the simulated C# token."}
-            </p>
-
-            <div className="space-y-2 max-h-[180px] overflow-y-auto mb-4 pr-1 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
-              {users.map((user) => (
+            <div className="flex border-b border-slate-800 mb-4 pb-2 justify-between items-center">
+              <div className="flex gap-4">
                 <button
-                  key={user.id}
-                  onClick={() => {
-                    setSelectedUserId(user.id);
-                    setManualToken(""); // Reset manual edits when selecting user
-                  }}
-                  className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left border transition cursor-pointer ${
-                    selectedUserId === user.id 
-                      ? 'bg-purple-950/40 border-purple-800/80 text-white font-medium shadow-sm' 
-                      : 'bg-slate-955/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:bg-slate-900/50'
+                  type="button"
+                  onClick={() => setSidebarTab('claims')}
+                  className={`text-xs font-bold uppercase tracking-wide pb-1.5 border-b-2 cursor-pointer transition ${
+                    sidebarTab === 'claims' 
+                      ? 'border-indigo-500 text-indigo-400' 
+                      : 'border-transparent text-slate-400 hover:text-slate-200'
                   }`}
                 >
+                  {"Claims Registry"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSidebarTab('register');
+                    setSelectedEndpoint('/api/auth/register');
+                  }}
+                  className={`text-xs font-bold uppercase tracking-wide pb-1.5 border-b-2 cursor-pointer transition ${
+                    sidebarTab === 'register' 
+                      ? 'border-indigo-500 text-indigo-400 font-extrabold' 
+                      : 'border-transparent text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {"C# Registration Simulator"}
+                </button>
+              </div>
+            </div>
+            
+            {sidebarTab === 'claims' ? (
+              <>
+                <p className="text-xs text-slate-400 mb-3 leading-relaxed">
+                  {"Select or construct customized authentication identity catalogs. These claims will be integrated into the simulated C# token."}
+                </p>
+
+                <div className="space-y-2 max-h-[180px] overflow-y-auto mb-4 pr-1 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
+                  {users.map((user) => (
+                    <button
+                      key={user.id}
+                      onClick={() => {
+                        setSelectedUserId(user.id);
+                        setManualToken(""); // Reset manual edits when selecting user
+                      }}
+                      className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left border transition cursor-pointer ${
+                        selectedUserId === user.id 
+                          ? 'bg-purple-950/40 border-purple-800/80 text-white font-medium shadow-sm' 
+                          : 'bg-slate-955/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:bg-slate-900/50'
+                      }`}
+                    >
+                      <div>
+                        <div className="text-xs font-semibold flex items-center gap-1.5">
+                          {user.name}
+                          <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
+                            user.role === 'Admin' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
+                            user.role === 'Manager' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                            'bg-sky-500/10 text-sky-400 border border-sky-500/20'
+                          }`}>
+                            {user.role}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-mono italic">{"username: "}{user.username}</span>
+                      </div>
+                      <div className="text-[11px] text-slate-400 flex items-center gap-1">
+                        {user.customClaims.length} {"claims"} <ArrowRight className="w-3 h-3 text-slate-500" />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                {/* EXPANDABLE COLLAPSED CREATE NEW USER FORM */}
+                <form onSubmit={handleAddCustomUser} className="border-t border-slate-800 pt-3.5 space-y-3">
+                  <span className="text-xs font-bold text-slate-300 block">{"Add Custom Identity Claims"}</span>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">{"Full Name"}</label>
+                      <input 
+                        type="text"
+                        required
+                        placeholder="E.g. Diana Prince"
+                        value={customUserForm.name}
+                        onChange={(e) => setCustomUserForm({...customUserForm, name: e.target.value})}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-purple-500 transition"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">{"Username"}</label>
+                      <input 
+                        type="text"
+                        required
+                        placeholder="E.g. diana"
+                        value={customUserForm.username}
+                        onChange={(e) => setCustomUserForm({...customUserForm, username: e.target.value})}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-purple-500 transition"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">{"Role"}</label>
+                      <select
+                        value={customUserForm.role}
+                        onChange={(e) => setCustomUserForm({...customUserForm, role: e.target.value})}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-purple-500 transition"
+                      >
+                        <option value="User">{"User"}</option>
+                        <option value="Manager">{"Manager"}</option>
+                        <option value="Admin">{"Admin"}</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">{"Age Claim"}</label>
+                      <input 
+                        type="number"
+                        min={1}
+                        max={120}
+                        value={customUserForm.age}
+                        onChange={(e) => setCustomUserForm({...customUserForm, age: e.target.value})}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-purple-500 transition"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono">{"Dept"}</label>
+                      <input 
+                        type="text"
+                        value={customUserForm.department}
+                        onChange={(e) => setCustomUserForm({...customUserForm, department: e.target.value})}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-purple-500 transition"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 transition rounded-xl text-xs font-semibold text-white flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-indigo-950"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" /> {"Register Identity and Switch"}
+                  </button>
+                </form>
+              </>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  {"Interactively trigger ASP.NET RegisterController user registration with authentic password hashing, validation warnings, and DB insertion."}
+                </p>
+                
+                <form onSubmit={handleRegisterUser} className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider mb-1">{"Full Name *"}</label>
+                      <input
+                        type="text"
+                        value={regName}
+                        onChange={(e) => setRegName(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 transition"
+                        placeholder="E.g. Diana Prince"
+                      />
+                      {regFormErrors["Name"] && (
+                        <p className="text-[9px] text-rose-400 mt-0.5">{regFormErrors["Name"][0]}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider mb-1">{"Username *"}</label>
+                      <input
+                        type="text"
+                        value={regUsername}
+                        onChange={(e) => setRegUsername(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 transition"
+                        placeholder="diana.security"
+                      />
+                      {regFormErrors["Username"] && (
+                        <p className="text-[9px] text-rose-400 mt-0.5">{regFormErrors["Username"][0]}</p>
+                      )}
+                    </div>
+                  </div>
+
                   <div>
-                    <div className="text-xs font-semibold flex items-center gap-1.5">
-                      {user.name}
-                      <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
-                        user.role === 'Admin' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
-                        user.role === 'Manager' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                        'bg-sky-500/10 text-sky-400 border border-sky-500/20'
+                    <label className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider mb-1">{"Email Address *"}</label>
+                    <input
+                      type="text"
+                      value={regEmail}
+                      onChange={(e) => setRegEmail(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 transition"
+                      placeholder="diana@contoso.com"
+                    />
+                    {regFormErrors["Email"] && (
+                      <p className="text-[9px] text-rose-400 mt-0.5">{regFormErrors["Email"][0]}</p>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider mb-1">{"Password *"}</label>
+                      <input
+                        type="password"
+                        value={regPassword}
+                        onChange={(e) => setRegPassword(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 transition"
+                        placeholder="••••••••"
+                      />
+                      {regFormErrors["Password"] && (
+                        <p className="text-[9px] text-rose-400 mt-0.5">{regFormErrors["Password"][0]}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider mb-1">{"Confirm *"}</label>
+                      <input
+                        type="password"
+                        value={regConfirmPassword}
+                        onChange={(e) => setRegConfirmPassword(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 transition"
+                        placeholder="••••••••"
+                      />
+                      {regFormErrors["ConfirmPassword"] && (
+                        <p className="text-[9px] text-rose-400 mt-0.5">{regFormErrors["ConfirmPassword"][0]}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Cryptographic Password Complexity Real-time Verification Panel */}
+                  <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-2.5 space-y-1.5">
+                    <span className="text-[9px] font-bold text-slate-400 block tracking-wide uppercase">C# PBKDF2 Password Constraints</span>
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[9px]">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`w-1.5 h-1.5 rounded-full ${regPassword.length >= 6 ? 'bg-emerald-500' : 'bg-slate-700'}`} />
+                        <span className={regPassword.length >= 6 ? 'text-emerald-400' : 'text-slate-400'}>Min 6 Length</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`w-1.5 h-1.5 rounded-full ${/[A-Z]/.test(regPassword) ? 'bg-emerald-500' : 'bg-slate-700'}`} />
+                        <span className={/[A-Z]/.test(regPassword) ? 'text-emerald-400' : 'text-slate-400'}>Uppercase Letter</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`w-1.5 h-1.5 rounded-full ${/[a-z]/.test(regPassword) ? 'bg-emerald-500' : 'bg-slate-700'}`} />
+                        <span className={/[a-z]/.test(regPassword) ? 'text-emerald-400' : 'text-slate-400'}>Lowercase Letter</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`w-1.5 h-1.5 rounded-full ${/[0-9]/.test(regPassword) ? 'bg-emerald-500' : 'bg-slate-700'}`} />
+                        <span className={/[0-9]/.test(regPassword) ? 'text-emerald-400' : 'text-slate-400'}>Decimal Digit</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 col-span-2">
+                        <span className={`w-1.5 h-1.5 rounded-full ${/[^A-Za-z0-9]/.test(regPassword) ? 'bg-emerald-500' : 'bg-slate-700'}`} />
+                        <span className={/[^A-Za-z0-9]/.test(regPassword) ? 'text-emerald-400' : 'text-slate-400'}>Special Character (e.g. !@#$)</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider mb-1">{"Age Claim *"}</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={120}
+                        value={regAge}
+                        onChange={(e) => setRegAge(Number(e.target.value))}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 transition"
+                      />
+                      {regFormErrors["Age"] && (
+                        <p className="text-[9px] text-rose-400 mt-0.5">{regFormErrors["Age"][0]}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider mb-1">{"Role"}</label>
+                      <select
+                        value={regRole}
+                        onChange={(e) => setRegRole(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 transition"
+                      >
+                        <option value="User">{"User"}</option>
+                        <option value="Manager">{"Manager"}</option>
+                        <option value="Admin">{"Admin"}</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider mb-1">{"Department"}</label>
+                      <input
+                        type="text"
+                        value={regDept}
+                        onChange={(e) => setRegDept(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 transition"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-2 px-3 bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 active:from-emerald-700 active:to-indigo-700 transition rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1.5 cursor-pointer shadow-md mt-2"
+                  >
+                    <Send className="w-4 h-4" /> {"POST /api/auth/register"}
+                  </button>
+                </form>
+
+                {/* Micro Response Feedback Block inside form */}
+                {regResponseData && (
+                  <div className={`mt-3 p-3 rounded-xl border ${
+                    regResponseData.status === 201 
+                      ? 'bg-emerald-950/20 border-emerald-800/60 text-slate-200' 
+                      : 'bg-rose-950/20 border-rose-800/60 text-slate-200'
+                  }`}>
+                    <div className="flex items-center justify-between mb-1.5 border-b pb-1.5 border-slate-800">
+                      <span className="text-[10px] font-bold uppercase tracking-wider">Simulated Server Response</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold ${
+                        regResponseData.status === 201 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
                       }`}>
-                        {user.role}
+                        {regResponseData.status} {regResponseData.status === 201 ? "Created" : "Bad Request"}
                       </span>
                     </div>
-                    <span className="text-[10px] text-slate-500 font-mono italic">{"username: "}{user.username}</span>
+
+                    {regResponseData.status === 201 ? (
+                      <div className="space-y-2">
+                        <p className="text-[11px] text-slate-300">
+                          {"User registered successfully! Secure hash generated using ASP.NET Identity subkeys."}
+                        </p>
+                        <div className="bg-slate-950 p-2 rounded-lg space-y-1">
+                          <div className="text-[9px] font-mono text-slate-400">
+                            <strong>{"Salt: "}</strong>{" "}{regResponseData.salt.substring(0, 20)}...
+                          </div>
+                          <div className="text-[9px] font-mono text-slate-400 break-all">
+                            <strong>{"Stored Hash: "}</strong>{" "}{regResponseData.hash.substring(0, 30)}...
+                          </div>
+                        </div>
+
+                        {lastRegisteredUser && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedUserId(lastRegisteredUser.id);
+                              setSidebarTab('claims');
+                              setSelectedEndpoint('/api/profile');
+                              setActiveWorkspaceTab('sandbox');
+                              setManualToken("");
+                            }}
+                            className="w-full py-1 px-2.5 bg-emerald-600 hover:bg-emerald-500 text-[10px] font-bold text-white rounded-lg flex items-center justify-center gap-1 cursor-pointer transition shadow-sm"
+                          >
+                            <Key className="w-3 h-3" /> {"Generate JWT & Authenticate as "}{lastRegisteredUser.name}
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-1 text-[10px]">
+                        <p className="text-rose-400 font-semibold">{regResponseData.title}</p>
+                        <ul className="list-disc pl-4 space-y-1 text-slate-400">
+                          {Object.entries(regResponseData.errors).map(([key, val]: [string, any]) => (
+                            <li key={key}>
+                              <strong>{key}:</strong> {val[0]}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
-                  <div className="text-[11px] text-slate-400 flex items-center gap-1">
-                    {user.customClaims.length} {"claims"} <ArrowRight className="w-3 h-3 text-slate-500" />
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            {/* EXPANDABLE COLLAPSED CREATE NEW USER FORM */}
-            <form onSubmit={handleAddCustomUser} className="border-t border-slate-800 pt-3.5 space-y-3">
-              <span className="text-xs font-bold text-slate-300 block">{"Add Custom Identity Claims"}</span>
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">{"Full Name"}</label>
-                  <input 
-                    type="text"
-                    required
-                    placeholder="E.g. Diana Prince"
-                    value={customUserForm.name}
-                    onChange={(e) => setCustomUserForm({...customUserForm, name: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-purple-500 transition"
-                  />
-                </div>
-                
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">{"Username"}</label>
-                  <input 
-                    type="text"
-                    required
-                    placeholder="E.g. diana"
-                    value={customUserForm.username}
-                    onChange={(e) => setCustomUserForm({...customUserForm, username: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-purple-500 transition"
-                  />
-                </div>
+                )}
               </div>
-
-              <div className="grid grid-cols-3 gap-2.5">
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">{"Role"}</label>
-                  <select
-                    value={customUserForm.role}
-                    onChange={(e) => setCustomUserForm({...customUserForm, role: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-purple-500 transition"
-                  >
-                    <option value="User">{"User"}</option>
-                    <option value="Manager">{"Manager"}</option>
-                    <option value="Admin">{"Admin"}</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">{"Age Claim"}</label>
-                  <input 
-                    type="number"
-                    min={1}
-                    max={120}
-                    value={customUserForm.age}
-                    onChange={(e) => setCustomUserForm({...customUserForm, age: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-purple-500 transition"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono">{"Dept"}</label>
-                  <input 
-                    type="text"
-                    value={customUserForm.department}
-                    onChange={(e) => setCustomUserForm({...customUserForm, department: e.target.value})}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-300 focus:outline-none focus:ring-1 focus:ring-purple-500 transition"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 transition rounded-xl text-xs font-semibold text-white flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-indigo-950"
-              >
-                <UserPlus className="w-3.5 h-3.5" /> {"Register Identity and Switch"}
-              </button>
-            </form>
+            )}
           </div>
 
         </div>
@@ -1376,7 +2168,7 @@ public class SecuredDataController : ControllerBase
               <div className="bg-slate-950 px-4 pt-3 flex border-b border-slate-800 overflow-x-auto gap-1 scrollbar-none font-mono">
                 <button
                   onClick={() => setActiveCodeFile('program')}
-                  className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-1.5 cursor-pointer ${
+                  className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
                     activeCodeFile === 'program' 
                       ? 'bg-slate-900 text-purple-400 border-t border-x border-slate-800' 
                       : 'text-slate-500 hover:text-slate-300'
@@ -1386,7 +2178,7 @@ public class SecuredDataController : ControllerBase
                 </button>
                 <button
                   onClick={() => setActiveCodeFile('service')}
-                  className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-1.5 cursor-pointer ${
+                  className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
                     activeCodeFile === 'service' 
                       ? 'bg-slate-900 text-purple-400 border-t border-x border-slate-800' 
                       : 'text-slate-500 hover:text-slate-300'
@@ -1396,7 +2188,7 @@ public class SecuredDataController : ControllerBase
                 </button>
                 <button
                   onClick={() => setActiveCodeFile('auth_controller')}
-                  className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-1.5 cursor-pointer ${
+                  className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
                     activeCodeFile === 'auth_controller' 
                       ? 'bg-slate-900 text-purple-400 border-t border-x border-slate-800' 
                       : 'text-slate-500 hover:text-slate-300'
@@ -1405,8 +2197,48 @@ public class SecuredDataController : ControllerBase
                   <span className="text-xs text-purple-500 font-bold">{"C#"}</span> {"AuthController.cs"}
                 </button>
                 <button
+                  onClick={() => setActiveCodeFile('register_controller')}
+                  className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                    activeCodeFile === 'register_controller' 
+                      ? 'bg-slate-900 text-purple-400 border-t border-x border-slate-800' 
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  <span className="text-xs text-purple-500 font-bold">{"C#"}</span> {"RegisterController.cs"}
+                </button>
+                <button
+                  onClick={() => setActiveCodeFile('register_dto')}
+                  className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                    activeCodeFile === 'register_dto' 
+                      ? 'bg-slate-900 text-purple-400 border-t border-x border-slate-800' 
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  <span className="text-xs text-purple-500 font-bold">{"C#"}</span> {"RegisterRequest.cs (DTO)"}
+                </button>
+                <button
+                  onClick={() => setActiveCodeFile('password_hasher')}
+                  className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                    activeCodeFile === 'password_hasher' 
+                      ? 'bg-slate-900 text-purple-400 border-t border-x border-slate-800' 
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  <span className="text-xs text-purple-500 font-bold">{"C#"}</span> {"PasswordHasher.cs"}
+                </button>
+                <button
+                  onClick={() => setActiveCodeFile('db_context')}
+                  className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                    activeCodeFile === 'db_context' 
+                      ? 'bg-slate-900 text-purple-400 border-t border-x border-slate-800' 
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  <span className="text-xs text-purple-500 font-bold">{"C#"}</span> {"AppDbContext.cs"}
+                </button>
+                <button
                   onClick={() => setActiveCodeFile('policy_controller')}
-                  className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-1.5 cursor-pointer ${
+                  className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
                     activeCodeFile === 'policy_controller' 
                       ? 'bg-slate-900 text-purple-400 border-t border-x border-slate-800' 
                       : 'text-slate-500 hover:text-slate-300'
@@ -1416,7 +2248,7 @@ public class SecuredDataController : ControllerBase
                 </button>
                 <button
                   onClick={() => setActiveCodeFile('appsettings')}
-                  className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-1.5 cursor-pointer ${
+                  className={`px-4 py-2 text-xs font-medium rounded-t-lg transition flex items-center gap-1.5 cursor-pointer shrink-0 ${
                     activeCodeFile === 'appsettings' 
                       ? 'bg-slate-900 text-purple-400 border-t border-x border-slate-800' 
                       : 'text-slate-500 hover:text-slate-300'
@@ -1434,6 +2266,10 @@ public class SecuredDataController : ControllerBase
                       {activeCodeFile === 'program' ? '🚀 ASP.NET Entry Point & Middleware Chain' :
                        activeCodeFile === 'service' ? '🛡️ Microsoft Security Token Descriptor Creator' :
                        activeCodeFile === 'auth_controller' ? '🔑 User Authenticator & Login API Flow' :
+                       activeCodeFile === 'register_controller' ? '📝 User Registration API endpoint controller (stores secure records in DbContext)' :
+                       activeCodeFile === 'register_dto' ? '📦 Input DTO with C# attribute-based DataAnnotations validators' :
+                       activeCodeFile === 'password_hasher' ? '🔐 RFC 2898 (PBKDF2) Cryptographic hashing & verification service' :
+                       activeCodeFile === 'db_context' ? '🗄️ EF Core DbContext & SQL Database user schemas config' :
                        activeCodeFile === 'policy_controller' ? '🥩 Role & custom claim authorization controller endpoints' :
                        '⚙️ Application configuration options file'}
                     </span>
@@ -1444,6 +2280,10 @@ public class SecuredDataController : ControllerBase
                       const codeStr = activeCodeFile === 'program' ? generatedProgramCs :
                                      activeCodeFile === 'service' ? generatedTokenService :
                                      activeCodeFile === 'auth_controller' ? generatedAuthController :
+                                     activeCodeFile === 'register_controller' ? generatedRegisterController :
+                                     activeCodeFile === 'register_dto' ? generatedRegisterDto :
+                                     activeCodeFile === 'password_hasher' ? generatedPasswordHasher :
+                                     activeCodeFile === 'db_context' ? generatedDbContext :
                                      activeCodeFile === 'policy_controller' ? generatedPolicyController :
                                      generatedAppSettings;
                       handleCopyCode(codeStr, activeCodeFile);
@@ -1470,6 +2310,10 @@ public class SecuredDataController : ControllerBase
                     {activeCodeFile === 'program' && generatedProgramCs}
                     {activeCodeFile === 'service' && generatedTokenService}
                     {activeCodeFile === 'auth_controller' && generatedAuthController}
+                    {activeCodeFile === 'register_controller' && generatedRegisterController}
+                    {activeCodeFile === 'register_dto' && generatedRegisterDto}
+                    {activeCodeFile === 'password_hasher' && generatedPasswordHasher}
+                    {activeCodeFile === 'db_context' && generatedDbContext}
                     {activeCodeFile === 'policy_controller' && generatedPolicyController}
                     {activeCodeFile === 'appsettings' && generatedAppSettings}
                   </pre>
@@ -1492,6 +2336,26 @@ public class SecuredDataController : ControllerBase
                     {activeCodeFile === 'auth_controller' && (
                       <p>
                         <strong>{"Authentication Scheme challenges:"}</strong> {"The auth handler returns HTTP 401 challenges containing Bearer descriptions natively if credentials do not validate."}
+                      </p>
+                    )}
+                    {activeCodeFile === 'register_controller' && (
+                      <p>
+                        <strong>{"Registration flow logic:"}</strong> {"Performs validations via ModelState.IsValid, queries unique email/username constraints via EF Core DbSet, hashes the password via IPasswordHasher, and saves the new User record asynchronously."}
+                      </p>
+                    )}
+                    {activeCodeFile === 'register_dto' && (
+                      <p>
+                        <strong>{"DataAnnotations Constraints:"}</strong> {"C# attributes like [Required], [EmailAddress], and [RegularExpression] are parsed by the ASP.NET Core MVC binder. Overwhelmingly, complexity rules are executed using high-performance regex checks on the payload."}
+                      </p>
+                    )}
+                    {activeCodeFile === 'password_hasher' && (
+                      <p>
+                        <strong>{"Salt Cryptography Factor:"}</strong> {"Always use high-entropy random byte arrays (via RandomNumberGenerator) rather than deterministic salts, protecting you against pre-computed string lookup (Rainbow table) attacks."}
+                      </p>
+                    )}
+                    {activeCodeFile === 'db_context' && (
+                      <p>
+                        <strong>{"DbContext Indexing optimization:"}</strong> {"We use modelBuilder.Entity<User>(...).HasIndex(e => e.Username).IsUnique() to build index chains, which prevents race conditions with concurrent registrations."}
                       </p>
                     )}
                     {activeCodeFile === 'policy_controller' && (
@@ -1653,6 +2517,7 @@ public class SecuredDataController : ControllerBase
                       onChange={(e) => setSelectedEndpoint(e.target.value)}
                       className="bg-transparent text-slate-300 text-xs px-2 py-1.5 focus:outline-none font-semibold cursor-pointer"
                     >
+                      <option value="/api/auth/register">{"POST /api/auth/register [AllowAnonymous]"}</option>
                       <option value="/api/public">{"GET /api/public [AllowAnonymous]"}</option>
                       <option value="/api/profile">{"GET /api/profile [Authorize]"}</option>
                       <option value="/api/admin">{"GET /api/admin [Authorize(Roles=\"Admin\")]"}</option>
